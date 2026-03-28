@@ -3,9 +3,16 @@
 # Minimum cmake requirement. We should require a quite recent
 # cmake for the dependency find macros etc. to be up to date.
 cmake_minimum_required(VERSION 3.28)
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
+
+include("cmake/HunterGate.cmake")
+HunterGate(
+    URL "https://github.com/ruslo/hunter/archive/v0.20.41.tar.gz"
+    SHA1 "e8e77b69fc2ca66808091e781cc06bcb02724443"
+)
+
 ############ Paths
 
 set(WEBSOCKETPP_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
@@ -107,6 +114,79 @@ if(BUILD_TESTS)
     include_subdirs("test")
 endif()
 
+if(HUNTER_ENABLED)
+  set(include_install_dir "include")
+  set(config_install_dir "lib/cmake/${PROJECT_NAME}")
+
+  add_library(websocketpp INTERFACE)
+
+  hunter_add_package(Boost COMPONENTS system random thread)
+  hunter_add_package(OpenSSL)
+  hunter_add_package(ZLIB)
+
+  find_package(OpenSSL REQUIRED)
+  find_package(ZLIB CONFIG REQUIRED)
+  find_package(Boost CONFIG COMPONENTS system random thread)
+
+  target_link_libraries(websocketpp INTERFACE
+    ${CMAKE_DL_LIBS}
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    ZLIB::zlib
+    Boost::system
+    Boost::random
+    Boost::thread)
+
+  if(MSVC)
+    target_compile_definitions (websocketpp INTERFACE _WEBSOCKETPP_CPP11_FUNCTIONAL_)
+    target_compile_definitions (websocketpp INTERFACE _WEBSOCKETPP_CPP11_SYSTEM_ERROR_)
+    target_compile_definitions (websocketpp INTERFACE _WEBSOCKETPP_CPP11_RANDOM_DEVICE_)
+    target_compile_definitions (websocketpp INTERFACE _WEBSOCKETPP_CPP11_MEMORY_)
+  else()
+    target_compile_definitions (websocketpp INTERFACE _WEBSOCKETPP_CPP11_STL_)
+  endif()
+
+  target_include_directories(websocketpp INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/websocketpp>
+    $<INSTALL_INTERFACE:${include_install_dir}>)
+
+  set(config_export_name "${PROJECT_NAME}Config")
+  set(targets_export_name "${PROJECT_NAME}Targets")
+  set(project_config "${CMAKE_CURRENT_BINARY_DIR}/${config_export_name}.cmake")
+  set(version_config "${CMAKE_CURRENT_BINARY_DIR}/${config_export_name}Version.cmake")
+  set(namespace "${PROJECT_NAME}::")
+
+  include(CMakePackageConfigHelpers)
+  configure_package_config_file( # Uses target_exports_name
+      "cmake/template/Config.cmake.in"
+      "${project_config}"
+      INSTALL_DESTINATION "${config_install_dir}"
+  )
+  write_basic_package_version_file(
+    "${version_config}" COMPATIBILITY SameMajorVersion
+    VERSION ${WEBSOCKETPP_VERSION}
+    )
+
+  install(
+    TARGETS websocketpp
+    EXPORT "${targets_export_name}"
+    INCLUDES DESTINATION "${include_install_dir}")
+
+  install(
+    DIRECTORY "websocketpp"
+    DESTINATION "${include_install_dir}"
+    PATTERN CMakeLists.txt EXCLUDE)
+
+  install(
+    EXPORT "${targets_export_name}"
+    NAMESPACE "${namespace}"
+    DESTINATION "${config_install_dir}")
+  install(
+    FILES "${project_config}" "${version_config}"
+    DESTINATION "${config_install_dir}")
+
+else()
+
 print_used_build_config()
 
 export(PACKAGE websocketpp)
@@ -128,3 +208,4 @@ install(FILES
   "${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/websocketpp-configVersion.cmake"
   DESTINATION "${INSTALL_CMAKE_DIR}" COMPONENT dev)
 
+endif()
